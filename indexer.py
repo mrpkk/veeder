@@ -50,21 +50,73 @@ def etherscan(params: dict, chainid: int = 1) -> dict:
     with urllib.request.urlopen(req, timeout=20) as r:
         return json.loads(r.read())
 
-def fetch_transfers(contract: str, offset: int = 1000) -> list[dict]:
-    """Последние N переводов токена."""
-    out, page = [], 1
-    while len(out) < offset and page <= 10:
-        r = etherscan({
-            "module": "account", "action": "tokentx",
-            "contractaddress": contract, "page": page, "offset": 100,
-            "start": 0, "sort": "desc",
-        })
-        if r.get("status") != "1" or not isinstance(r.get("result"), list) or not r["result"]:
+def _block_at(ts: int) -> int:
+    """Номер блока примерно на момент unix-времени ts (Etherscan v2: blocktimestamp)."""
+    r = etherscan({"module": "block", "action": "blocktimestamp", "timestamp": str(int(ts))})
+    res = r.get("result", "")
+    if isinstance(res, str) and res.isdigit():
+        return int(res)
+    # запасной путь: ~12.2 с на блок
+    now_blk = int(etherscan({"module": "proxy", "action": "eth_blockNumber"})["result"], 16)
+    return max(1, now_blk - int((time.time() - ts) / 12.2))
+
+TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+USDC_DECIMALS = 6
+
+def _num(v) -> int:
+    """Etherscan отдаёт числа то как '123', то как '0x7b'."""
+    if v is None or v == "":
+        return 0
+    if isinstance(v, int):
+        return v
+    s = str(v)
+    return int(s, 16) if s.startswith("0x") else int(s)
+
+def fetch_transfers(contract: str, want: int = 400, hours: int = 24,
+                    decimals: int = USDC_DECIMALS) -> list[dict]:
+    """Равномерная выборка переводов по времени через логи.
+
+    Почему не `tokentx`: Etherscan `tokentx` игнорирует start/end и
+    перекрывает страницы при sort=desc (замерено: 500 записей = 275
+    уникальных, страницы 4-5 отдают те же хэши). Срез из 500 «последних»
+    — это 2-минутный всплеск, и индекс по нему скачет день ото дня.
+
+    Логи (module=logs) уважают fromBlock/toBlock — берём блоки, разнесённые
+    на всё окно, и набираем по ним. Так индекс сравним день ко дню.
+    """
+    seen: dict[str, dict] = {}
+    now_blk = _block_at(time.time())
+
+    for k in range(hours):
+        blk = now_blk - k * 300                    # ≈ каждые 50 минут
+        if blk < 1:
             break
-        out.extend(r["result"])
-        page += 1
-        time.sleep(0.22)                     # не долбить лимиты
-    return out[:offset]
+        r = etherscan({
+            "module": "logs", "action": "getLogs",
+            "fromBlock": blk, "toBlock": blk, "address": contract,
+            "topic0": TRANSFER_TOPIC,
+            "page": 1, "offset": 100, "sort": "asc",
+        })
+        res = r.get("result")
+        if r.get("status") == "1" and isinstance(res, list):
+            for lg in res:
+                key = f"{lg['transactionHash']}:{lg['logIndex']}"
+                if key in seen:
+                    continue
+                topics = lg.get("topics", [])
+                frm = "0x" + topics[1][-40:] if len(topics) > 1 else ""
+                to  = "0x" + topics[2][-40:] if len(topics) > 2 else ""
+                seen[key] = {
+                    "hash": key,
+                    "blockNumber": lg["blockNumber"],
+                    "timeStamp": _num(lg.get("timeStamp")),
+                    "from": frm, "to": to,
+                    "value": str(int(lg["data"], 16)) if lg.get("data") else "0",
+                }
+        time.sleep(0.2)
+
+    out = sorted(seen.values(), key=lambda t: _num(t["timeStamp"]), reverse=True)
+    return out[:want]
 
 # ── метрики ─────────────────────────────────────────────────────────────
 def pct(a: float, b: float) -> float:
@@ -105,10 +157,15 @@ def analyse(transfers: list[dict]) -> dict:
         "ЕСТЬ · переводы несут экономическую нагрузку"
     )
 
+    ts = sorted(_num(t["timeStamp"]) for t in transfers)
+    span = ts[-1] - ts[0]
+    # окно короче часа — вердикт о «нагрузке» недостоверен: это один всплеск
+    span_ok = span >= 3600
+
     return {
         "ts": datetime.now(timezone.utc).isoformat(),
-        "window": {"from": min(t["timeStamp"] for t in transfers),
-                   "to":   max(t["timeStamp"] for t in transfers)},
+        "window": {"from": ts[0], "to": ts[-1], "span_seconds": span,
+                   "reliable": span_ok},
         "counts": {
             "transfers": n, "senders": len(senders), "receivers": len(receivers),
             "sub_1usd": sub1, "sub_5usd": sub5, "sub_50usd": sub50, "ge_50usd": big,
@@ -161,13 +218,20 @@ def render(rep: dict) -> str:
     if "error" in rep:
         return f"⚠️ {rep['error']}"
     c, v, s = rep["counts"], rep["value"], rep["shares_pct"]
+    w = rep.get("window", {})
+    span = w.get("span_seconds", 0)
+    span_h = span / 3600
+    ok = w.get("reliable", True)
     bar = "█" * int(rep["reality_index"] / 5) + "░" * (20 - int(rep["reality_index"] / 5))
+    warn = "" if ok else ("\n⚠️ <i>Окно меньше часа — это один всплеск, "
+                          "вердикт о нагрузке недостоверен.</i>")
     return (
         f"<b>VEEDER · индекс реальности</b>\n\n"
         f"<code>{bar}</code>  <b>{rep['reality_index']}</b>/100\n"
         f"<b>{rep['verdict']}</b>\n\n"
-        f"<b>Окно:</b> {c['transfers']} переводов {rep.get('tokens',['USDC'])[0]}, {c['senders']} отправителей\n"
-        f"<b>Объём:</b> ${v['total_usd']:,.0f} · медиана ${v['median_usd']}\n\n"
+        f"<b>Окно:</b> {span_h:.1f} ч · {c['transfers']} уникальных переводов "
+        f"{rep.get('tokens',['USDC'])[0]}, {c['senders']} отправителей\n"
+        f"<b>Объём:</b> ${v['total_usd']:,.0f} · медиана ${v['median_usd']}{warn}\n\n"
         f"<b>Профиль переводов</b>\n"
         f"  &lt; $1 ........ {s['sub_1']}%\n"
         f"  &lt; $5 ........ {s['sub_5']}%\n"

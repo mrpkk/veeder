@@ -1,3 +1,11 @@
 2026-10-11 20:41:07,416 INFO VEEDER запущен (Stars=25, прокси=socks5h://127.0.0.1:9050, подписчиков=0)
 2026-10-11 20:41:07,416 INFO Start polling
 2026-10-11 20:41:17,887 INFO Run polling for bot @veederBot_bot id=8848160711 - 'veeder'
+2026-10-12 01:25:34,313 INFO Update id=924836184 is handled. Duration 1308 ms by bot id=8848160711
+2026-10-12 01:26:06,909 INFO Update id=924836185 is handled. Duration 373 ms by bot id=8848160711
+2026-10-12 01:34:33,994 WARNING Received SIGTERM signal
+2026-10-12 01:34:34,014 INFO Polling stopped for bot @veederBot_bot id=8848160711 - 'veeder'
+2026-10-12 01:34:34,016 INFO Polling stopped
+2026-10-12 01:34:42,186 INFO VEEDER запущен (Stars=25, прокси=socks5h://127.0.0.1:9050, подписчиков=0)
+2026-10-12 01:34:42,189 INFO Start polling
+2026-10-12 01:34:43,436 INFO Run polling for bot @veederBot_bot id=8848160711 - 'veeder'
