@@ -1,0 +1,18 @@
+[Unit]
+Description=VEEDER — индекс реальности платежей (Telegram Stars)
+After=network-online.target tor.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=iamthat
+Group=iamthat
+WorkingDirectory=/media/Sruti/iamthat/work/crypto/veeder
+ExecStart=/usr/bin/python3 /media/Sruti/iamthat/work/crypto/veeder/bot.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/media/Sruti/iamthat/work/crypto/veeder/logs/veeder.log
+StandardError=append:/media/Sruti/iamthat/work/crypto/veeder/logs/veeder.log
+
+[Install]
+WantedBy=multi-user.target
