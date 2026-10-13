@@ -413,3 +413,6 @@ aiogram.exceptions.TelegramBadRequest: Telegram server says - Bad Request: can't
 2026-10-13 05:00:20,041 ERROR Failed to fetch updates - TelegramNetworkError: HTTP Client says - ServerDisconnectedError: Server disconnected
 2026-10-13 05:00:20,041 WARNING Sleep for 1.000000 seconds and try again... (tryings = 0, bot id = 8848160711)
 2026-10-13 05:00:58,636 INFO Connection established (tryings = 1, bot id = 8848160711)
+2026-10-13 07:00:21,077 ERROR Failed to fetch updates - TelegramNetworkError: HTTP Client says - ServerDisconnectedError: Server disconnected
+2026-10-13 07:00:21,086 WARNING Sleep for 1.000000 seconds and try again... (tryings = 0, bot id = 8848160711)
+2026-10-13 07:01:00,759 INFO Connection established (tryings = 1, bot id = 8848160711)
